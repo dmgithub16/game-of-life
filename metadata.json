@@ -1,0 +1,6 @@
+{
+  "name": "Conway's Game of Life",
+  "description": "Interactive Conway's Game of Life and Life-like cellular automata simulator with customizable B/S rules, speed controls, pattern save/load, and interactive canvas.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
