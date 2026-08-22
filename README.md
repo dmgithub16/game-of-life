@@ -17,11 +17,28 @@ have to edit source to change.
 | **Show grid lines** | Toggle the cell gridlines |
 | **Birth (B)** | Which live-neighbor counts (0–8) cause a dead cell to become alive |
 | **Survive (S)** | Which live-neighbor counts (0–8) keep a live cell alive |
-| **Rule presets** | One-click B/S presets: Conway's Life, HighLife, Day & Night, Seeds, Life without Death, Replicator, Maze |
+| **Rule preset dropdown** | B/S presets: Conway's Life, HighLife, Day & Night, Seeds, Life without Death, Replicator, Maze |
 
 Because Birth/Survive are independently editable neighbor-count sets,
 this isn't limited to Conway's original B3/S23 rule — it's a general
 Life-like automaton sandbox.
+
+The window is **resizable** — drag an edge or corner and the grid
+canvas grows or shrinks to fill the available space (recomputing rows
+and columns at the current cell size) while the control panel stays
+docked to the right at a fixed width. There's an enforced minimum
+size so the panel never gets clipped.
+
+## Save & load
+
+Patterns save to a `.json` file containing the grid dimensions, edge
+mode, birth/survive rule, cell size, generation count, and the sparse
+list of alive cells. Save/Load use your OS's native file picker (via
+a hidden `tkinter` root), so you get a normal Save-As / Open dialog
+rather than a text-entry box.
+
+- **Ctrl+S** or the **Save** button — save the current pattern
+- **Ctrl+O** or the **Load** button — load a saved pattern
 
 ## Controls
 
@@ -31,6 +48,8 @@ Life-like automaton sandbox.
 - **S** — single-step (while paused)
 - **R** — randomize the grid using the current density
 - **C** — clear the grid
+- **Ctrl+S** — save pattern to a file
+- **Ctrl+O** — load pattern from a file
 - **Esc** or close the window — quit
 
 ## Running it

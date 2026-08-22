@@ -93,6 +93,36 @@ class LifeGrid:
                     total += padded[1 + dr : 1 + dr + self.rows, 1 + dc : 1 + dc + self.cols]
             return total
 
+    # ------------------------------------------------------------------
+    # Serialization
+    # ------------------------------------------------------------------
+    def to_dict(self) -> dict:
+        """Serialize the grid to a JSON-friendly dict (sparse cell list)."""
+        rows, cols = self.cells.nonzero()
+        return {
+            "rows": self.rows,
+            "cols": self.cols,
+            "wrap": self.wrap,
+            "birth": sorted(self.birth),
+            "survive": sorted(self.survive),
+            "generation": self.generation,
+            "alive_cells": [[int(r), int(c)] for r, c in zip(rows, cols)],
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "LifeGrid":
+        grid = cls(
+            rows=d["rows"],
+            cols=d["cols"],
+            wrap=d.get("wrap", True),
+            birth=frozenset(d.get("birth", [3])),
+            survive=frozenset(d.get("survive", [2, 3])),
+        )
+        for r, c in d.get("alive_cells", []):
+            grid.set_cell(r, c, 1)
+        grid.generation = d.get("generation", 0)
+        return grid
+
     def step(self) -> None:
         """Advance the simulation by one generation according to the B/S rule."""
         counts = self._neighbor_counts()
