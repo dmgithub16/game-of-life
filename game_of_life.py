@@ -12,6 +12,10 @@ control in the side panel:
   - Birth rule (which live-neighbor counts create a new cell)
   - Survive rule (which live-neighbor counts keep a cell alive)
   - Rule presets, chosen from a dropdown (Conway, HighLife, Day & Night, Seeds, ...)
+  - A categorized pattern library (Still Life / Oscillator / Spaceship / Gun /
+    Methuselah) with a brief description per pattern, sourced from Catagolue's
+    object census -- toggle "Insert pattern on click" and click the grid to stamp
+    the selected pattern in place (existing cells are preserved, not cleared)
 
 The window is resizable -- the grid canvas fills the available space
 and the control panel stays docked to the right edge.
@@ -38,20 +42,23 @@ import sys
 
 import pygame
 
+import textwrap
+
 from life import LifeGrid, RULE_PRESETS
 from widgets import Slider, Button, Toggle, ToggleGrid, Dropdown
+from patterns_library import PATTERN_CATEGORIES
 
 # ----------------------------------------------------------------------
 # Layout constants
 # ----------------------------------------------------------------------
 PANEL_W = 340
 INITIAL_GRID_AREA_W = 700
-INITIAL_GRID_AREA_H = 700
+INITIAL_GRID_AREA_H = 840
 INITIAL_WINDOW_W = INITIAL_GRID_AREA_W + PANEL_W
 INITIAL_WINDOW_H = INITIAL_GRID_AREA_H
 
 MIN_WINDOW_W = PANEL_W + 260
-MIN_WINDOW_H = 640
+MIN_WINDOW_H = 840
 
 BG_COLOR = (18, 18, 22)
 PANEL_COLOR = (28, 29, 35)
@@ -94,6 +101,7 @@ class GameOfLifeApp:
         self.time_accumulator = 0.0
         self.status_message = ""
         self.status_timer = 0.0
+        self.insert_mode = False
 
         # Hidden tkinter root for native save/load file dialogs.
         self._tk_root = None
@@ -106,8 +114,8 @@ class GameOfLifeApp:
     def _build_panel(self):
         """Create all panel widgets once (values persist across later relayouts)."""
         px = self.grid_area_w + 20
-        y = 20
-        gap = 46
+        y = 16
+        gap = 42
         w = PANEL_W - 40
 
         self.speed_slider = Slider((px, y, w, 0), "Speed (gen/sec)", 1, 60, 8, step=1)
@@ -117,77 +125,89 @@ class GameOfLifeApp:
         self.cellsize_slider = Slider(
             (px, y, w, 0), "Cell size (px)", MIN_CELL_SIZE, MAX_CELL_SIZE, DEFAULT_CELL_SIZE, step=1
         )
-        y += gap + 10
+        y += gap + 4
 
         self.wrap_toggle = Toggle((px, y, w, 22), "Wrap-around edges", True)
-        y += 34
+        y += 30
         self.gridlines_toggle = Toggle((px, y, w, 22), "Show grid lines", True)
-        y += 44
+        y += 36
 
         self.birth_grid = ToggleGrid((px, y, 0, 0), "Birth (B) -- neighbor counts", {3}, accent=ACCENT_GREEN)
-        y += 56
+        y += 50
         self.survive_grid = ToggleGrid((px, y, 0, 0), "Survive (S) -- neighbor counts", {2, 3}, accent=ACCENT)
-        y += 66
+        y += 58
 
         self.preset_dropdown = Dropdown((px, y, w, 0), "Rule preset", PRESET_NAMES, selected_index=0)
-        y += 56
+        y += 50
+
+        # Pattern library: category + pattern dropdowns, insert-mode toggle, description
+        category_names = [name for name, _ in PATTERN_CATEGORIES]
+        first_category_patterns = PATTERN_CATEGORIES[0][1]
+        pattern_names = [p[0] for p in first_category_patterns]
+
+        self.pattern_category_dropdown = Dropdown((px, y, w, 0), "Pattern library category", category_names, 0)
+        y += 50
+        self.pattern_dropdown = Dropdown((px, y, w, 0), "Pattern", pattern_names, 0)
+        y += 50
+        self.insert_mode_toggle = Toggle((px, y, w, 22), "Insert pattern on click", False)
+        y += 30
+        self.pattern_desc_y = y
+        y += 48  # reserved space for up to 3 lines of wrapped description text
 
         self.play_button = Button((px, y, w, 40), "Play (Space)", color=(60, 160, 100))
-        y += 50
+        y += 46
         btn_w = (w - 10) // 2
         self.step_button = Button((px, y, btn_w, 36), "Step (S)", color=(80, 100, 160))
         self.reset_button = Button((px + btn_w + 10, y, btn_w, 36), "Reset gen #", color=(90, 90, 100))
-        y += 46
+        y += 42
         self.randomize_button = Button((px, y, btn_w, 36), "Randomize (R)", color=(150, 120, 60))
         self.clear_button = Button((px + btn_w + 10, y, btn_w, 36), "Clear (C)", color=(160, 70, 70))
-        y += 46
+        y += 42
         self.save_button = Button((px, y, btn_w, 36), "Save (Ctrl+S)", color=(60, 110, 150))
         self.load_button = Button((px + btn_w + 10, y, btn_w, 36), "Load (Ctrl+O)", color=(60, 110, 150))
-        y += 50
+        y += 46
 
-        self.stats_y = y + 10
+        self.stats_y = y + 8
         self.font = pygame.font.Font(None, 18)
         self.title_font = pygame.font.Font(None, 22)
 
-        self._all_widgets_ordered = [
-            self.speed_slider, self.density_slider, self.cellsize_slider,
-            self.wrap_toggle, self.gridlines_toggle,
-            self.birth_grid, self.survive_grid,
-            self.preset_dropdown,
-            self.play_button, self.step_button, self.reset_button,
-            self.randomize_button, self.clear_button,
-            self.save_button, self.load_button,
-        ]
+        self.desc_font = pygame.font.Font(None, 16)
 
     def _relayout_panel(self):
         """Reposition existing widgets (preserving their values) after a resize."""
         px = self.grid_area_w + 20
-        y = 20
-        gap = 46
+        y = 16
+        gap = 42
         w = PANEL_W - 40
         btn_w = (w - 10) // 2
 
         self.speed_slider.set_pos(px, y); y += gap
         self.density_slider.set_pos(px, y); y += gap
-        self.cellsize_slider.set_pos(px, y); y += gap + 10
+        self.cellsize_slider.set_pos(px, y); y += gap + 4
 
-        self.wrap_toggle.set_pos(px, y); y += 34
-        self.gridlines_toggle.set_pos(px, y); y += 44
+        self.wrap_toggle.set_pos(px, y); y += 30
+        self.gridlines_toggle.set_pos(px, y); y += 36
 
-        self.birth_grid.set_pos(px, y); y += 56
-        self.survive_grid.set_pos(px, y); y += 66
+        self.birth_grid.set_pos(px, y); y += 50
+        self.survive_grid.set_pos(px, y); y += 58
 
-        self.preset_dropdown.set_pos(px, y); y += 56
+        self.preset_dropdown.set_pos(px, y); y += 50
 
-        self.play_button.set_pos(px, y); y += 50
+        self.pattern_category_dropdown.set_pos(px, y); y += 50
+        self.pattern_dropdown.set_pos(px, y); y += 50
+        self.insert_mode_toggle.set_pos(px, y); y += 30
+        self.pattern_desc_y = y
+        y += 48
+
+        self.play_button.set_pos(px, y); y += 46
         self.step_button.set_pos(px, y)
-        self.reset_button.set_pos(px + btn_w + 10, y); y += 46
+        self.reset_button.set_pos(px + btn_w + 10, y); y += 42
         self.randomize_button.set_pos(px, y)
-        self.clear_button.set_pos(px + btn_w + 10, y); y += 46
+        self.clear_button.set_pos(px + btn_w + 10, y); y += 42
         self.save_button.set_pos(px, y)
-        self.load_button.set_pos(px + btn_w + 10, y); y += 50
+        self.load_button.set_pos(px + btn_w + 10, y); y += 46
 
-        self.stats_y = y + 10
+        self.stats_y = y + 8
 
     # ------------------------------------------------------------------
     # Resize handling
@@ -217,6 +237,34 @@ class GameOfLifeApp:
         rows = max(1, self.grid_area_h // self.cell_size)
         cols = max(1, self.grid_area_w // self.cell_size)
         self.grid.resize(rows, cols)
+
+    # ------------------------------------------------------------------
+    # Pattern library
+    # ------------------------------------------------------------------
+    def _current_pattern(self):
+        """Returns (name, cells, description) for the currently selected library pattern."""
+        category_name = self.pattern_category_dropdown.selected
+        patterns = dict(PATTERN_CATEGORIES)[category_name]
+        idx = min(self.pattern_dropdown.selected_index, len(patterns) - 1)
+        return patterns[idx]
+
+    def _refresh_pattern_dropdown(self):
+        """Rebuilds the Pattern dropdown's option list after a category change."""
+        category_name = self.pattern_category_dropdown.selected
+        patterns = dict(PATTERN_CATEGORIES)[category_name]
+        self.pattern_dropdown.options = [p[0] for p in patterns]
+        self.pattern_dropdown.selected_index = 0
+        self.pattern_dropdown._layout()
+
+    def _stamp_pattern_at(self, row, col):
+        name, cells, desc = self._current_pattern()
+        height = max(r for r, c in cells) + 1
+        width = max(c for r, c in cells) + 1
+        top_row = row - height // 2
+        top_col = col - width // 2
+        for dr, dc in cells:
+            self.grid.set_cell(top_row + dr, top_col + dc, 1)
+        self._set_status(f"Placed: {name}")
 
     def _screen_to_cell(self, pos):
         x, y = pos
@@ -315,25 +363,54 @@ class GameOfLifeApp:
             elif event.key == pygame.K_c:
                 self.grid.clear()
 
-        # If the preset dropdown is open, it should eat clicks before grid/paint logic.
-        dropdown_was_open = self.preset_dropdown.open
+        # Any dropdown open at the START of this event has an overlay covering
+        # other widgets/the grid -- it must consume this event exclusively, so
+        # every other widget and grid interaction below is gated on this flag
+        # having been False. (A dropdown that only just opened THIS event has
+        # no stale overlay yet, so it doesn't need to gate this same event.)
+        any_dropdown_was_open = (
+            self.preset_dropdown.open or self.pattern_category_dropdown.open or self.pattern_dropdown.open
+        )
 
-        # Grid click / paint (only if not interacting with an open dropdown)
-        if not dropdown_was_open:
-            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                cell = self._screen_to_cell(event.pos)
-                if cell is not None:
-                    row, col = cell
+        if any_dropdown_was_open:
+            # Exactly one dropdown can be open at a time (enforced below whenever
+            # one opens), so route this event to that one dropdown only -- the
+            # others are visually covered by its overlay and must not also see
+            # this click, or a click landing on a covered widget's box would
+            # spuriously toggle that widget open too.
+            if self.preset_dropdown.open:
+                if self.preset_dropdown.handle_event(event):
+                    name = self.preset_dropdown.selected
+                    birth, survive = RULE_PRESETS[name]
+                    self.grid.birth = set(birth)
+                    self.grid.survive = set(survive)
+                    self.birth_grid.values = set(birth)
+                    self.survive_grid.values = set(survive)
+            elif self.pattern_category_dropdown.open:
+                if self.pattern_category_dropdown.handle_event(event):
+                    self._refresh_pattern_dropdown()
+            elif self.pattern_dropdown.open:
+                self.pattern_dropdown.handle_event(event)
+            return
+
+        # Grid click / paint
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            cell = self._screen_to_cell(event.pos)
+            if cell is not None:
+                row, col = cell
+                if self.insert_mode_toggle.value:
+                    self._stamp_pattern_at(row, col)
+                else:
                     self.paint_value = 0 if self.grid.cells[row, col] else 1
                     self.grid.toggle_cell(row, col)
                     self.mouse_painting = True
-            elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
-                self.mouse_painting = False
-            elif event.type == pygame.MOUSEMOTION and self.mouse_painting:
-                cell = self._screen_to_cell(event.pos)
-                if cell is not None:
-                    row, col = cell
-                    self.grid.set_cell(row, col, self.paint_value)
+        elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+            self.mouse_painting = False
+        elif event.type == pygame.MOUSEMOTION and self.mouse_painting and not self.insert_mode_toggle.value:
+            cell = self._screen_to_cell(event.pos)
+            if cell is not None:
+                row, col = cell
+                self.grid.set_cell(row, col, self.paint_value)
 
         # Panel widgets
         self.speed_slider.handle_event(event)
@@ -355,6 +432,11 @@ class GameOfLifeApp:
             self.grid.survive = set(survive)
             self.birth_grid.values = set(birth)
             self.survive_grid.values = set(survive)
+
+        if self.pattern_category_dropdown.handle_event(event):
+            self._refresh_pattern_dropdown()
+        self.pattern_dropdown.handle_event(event)
+        self.insert_mode_toggle.handle_event(event)
 
         if self.play_button.handle_event(event):
             self.running_sim = not self.running_sim
@@ -429,6 +511,16 @@ class GameOfLifeApp:
         self.survive_grid.draw(self.screen)
         self.preset_dropdown.draw(self.screen)
 
+        self.pattern_category_dropdown.draw(self.screen)
+        self.pattern_dropdown.draw(self.screen)
+        self.insert_mode_toggle.draw(self.screen, ACCENT_GREEN)
+
+        _, _, current_desc = self._current_pattern()
+        wrapped = textwrap.wrap(current_desc, width=46)[:3]
+        for i, line in enumerate(wrapped):
+            line_surf = self.desc_font.render(line, True, (160, 165, 175))
+            self.screen.blit(line_surf, (self.grid_area_w + 20, self.pattern_desc_y + i * 15))
+
         self.play_button.label = "Pause (Space)" if self.running_sim else "Play (Space)"
         self.play_button.color = (200, 100, 70) if self.running_sim else (60, 160, 100)
         self.play_button.draw(self.screen)
@@ -454,8 +546,10 @@ class GameOfLifeApp:
             status_surf = self.font.render(self.status_message, True, (150, 230, 180))
             self.screen.blit(status_surf, (stats_x, self.stats_y + 70))
 
-        # Dropdown overlay drawn LAST so it layers above every other panel widget.
+        # Dropdown overlays drawn LAST so they layer above every other panel widget.
         self.preset_dropdown.draw_open_overlay(self.screen)
+        self.pattern_category_dropdown.draw_open_overlay(self.screen)
+        self.pattern_dropdown.draw_open_overlay(self.screen)
 
         pygame.display.flip()
 

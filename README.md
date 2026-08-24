@@ -18,10 +18,33 @@ have to edit source to change.
 | **Birth (B)** | Which live-neighbor counts (0–8) cause a dead cell to become alive |
 | **Survive (S)** | Which live-neighbor counts (0–8) keep a live cell alive |
 | **Rule preset dropdown** | B/S presets: Conway's Life, HighLife, Day & Night, Seeds, Life without Death, Replicator, Maze |
+| **Pattern library** | Categorized, described patterns (Still Life / Oscillator / Spaceship / Gun / Methuselah) that can be stamped onto the grid |
 
 Because Birth/Survive are independently editable neighbor-count sets,
 this isn't limited to Conway's original B3/S23 rule — it's a general
 Life-like automaton sandbox.
+
+## Pattern library
+
+Below the rule preset dropdown is a second, categorized library of
+21 well-known patterns — still lifes, oscillators, spaceships, the
+Gosper glider gun, and three methuselahs (R-pentomino, Diehard,
+Acorn) — each with a one-line description. Selection follows
+Catagolue's census of naturally occurring objects
+(https://catagolue.hatsya.com/syntheses), and every pattern's
+coordinates were checked computationally against its documented
+behavior before inclusion (still lifes verified stable, oscillators
+verified to return to their start after their documented period,
+spaceships verified to translate by their documented offset,
+methuselahs verified against their documented stabilization
+generation/population).
+
+Pick a category, pick a pattern, flip on **Insert pattern on click**,
+then click anywhere on the grid to stamp it there, centered on your
+cursor. Existing cells are preserved (the pattern is added, not
+overwritten), so you can drop spaceships into an existing soup.
+Toggle **Insert pattern on click** back off to return to normal
+single-cell toggling.
 
 The window is **resizable** — drag an edge or corner and the grid
 canvas grows or shrinks to fill the available space (recomputing rows
@@ -66,9 +89,10 @@ headless without a virtual framebuffer like `Xvfb`).
 
 ```
 game-of-life/
-├── life.py           # Pure simulation engine (numpy), no pygame dependency
-├── widgets.py         # Minimal reusable pygame GUI widgets (Slider, Button, Toggle, ToggleGrid)
-├── game_of_life.py     # Main application: window, panel wiring, main loop
+├── life.py               # Pure simulation engine (numpy), no pygame dependency
+├── widgets.py             # Minimal reusable pygame GUI widgets (Slider, Button, Toggle, ToggleGrid, Dropdown)
+├── patterns_library.py     # Categorized, described pattern library (still lifes/oscillators/spaceships/guns/methuselahs)
+├── game_of_life.py         # Main application: window, panel wiring, main loop
 ├── requirements.txt
 └── README.md
 ```
