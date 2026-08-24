@@ -19,6 +19,8 @@ have to edit source to change.
 | **Survive (S)** | Which live-neighbor counts (0–8) keep a live cell alive |
 | **Rule preset dropdown** | B/S presets: Conway's Life, HighLife, Day & Night, Seeds, Life without Death, Replicator, Maze |
 | **Pattern library** | Categorized, described patterns (Still Life / Oscillator / Spaceship / Gun / Methuselah) that can be stamped onto the grid |
+| **Color by age** | Cells brighten/warm the moment they're born and cool toward the standard blue the longer they stay alive continuously |
+| **Pattern by heredity** | Each cell is drawn with one of 8 pixel-textures based on which founding ancestor its lineage traces back to |
 
 Because Birth/Survive are independently editable neighbor-count sets,
 this isn't limited to Conway's original B3/S23 rule — it's a general
@@ -45,6 +47,28 @@ cursor. Existing cells are preserved (the pattern is added, not
 overwritten), so you can drop spaceships into an existing soup.
 Toggle **Insert pattern on click** back off to return to normal
 single-cell toggling.
+
+## Age and heredity visualization
+
+Every live cell tracks two things behind the scenes:
+
+- **Age** -- how many generations it's been continuously alive. This
+  drives its color: newly-born cells are warm and bright, cooling
+  toward the grid's standard blue over about 20 generations of
+  survival. A cell that dies and is later reborn (even in the same
+  spot) starts over at age 1.
+- **Lineage** -- which founding ancestor it descends from. When cells
+  are randomized, each one starts as its own lineage; a click-drag
+  paint stroke or a stamped pattern is one lineage; and when a new
+  cell is born from parents, it inherits whichever lineage is most
+  common among its live neighbors. This drives a pixel pattern (one
+  of 8 textures -- stripes, dots, a ring, a cross, etc.) so you can
+  watch which founding families spread, merge, or die out as the
+  simulation runs. Patterns are only drawn at cell sizes of 8px or
+  larger; smaller cells fall back to a solid fill.
+
+Both are independently toggleable (**Color by age** / **Pattern by
+heredity**) if you'd rather see the classic flat-blue look.
 
 The window is **resizable** — drag an edge or corner and the grid
 canvas grows or shrinks to fill the available space (recomputing rows
@@ -89,8 +113,9 @@ headless without a virtual framebuffer like `Xvfb`).
 
 ```
 game-of-life/
-├── life.py               # Pure simulation engine (numpy), no pygame dependency
+├── life.py               # Pure simulation engine (numpy): CA rules, age tracking, lineage inheritance
 ├── widgets.py             # Minimal reusable pygame GUI widgets (Slider, Button, Toggle, ToggleGrid, Dropdown)
+├── visualization.py        # Age-color gradient + heredity pixel-pattern rendering, with tile caching
 ├── patterns_library.py     # Categorized, described pattern library (still lifes/oscillators/spaceships/guns/methuselahs)
 ├── game_of_life.py         # Main application: window, panel wiring, main loop
 ├── requirements.txt

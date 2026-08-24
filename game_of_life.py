@@ -16,6 +16,10 @@ control in the side panel:
     Methuselah) with a brief description per pattern, sourced from Catagolue's
     object census -- toggle "Insert pattern on click" and click the grid to stamp
     the selected pattern in place (existing cells are preserved, not cleared)
+  - Cell coloring by age (a cell brightens/warms the moment it's born, then
+    cools toward the standard blue the longer it survives continuously) and
+    a pixel pattern per cell showing its heredity (which founding ancestor
+    its lineage traces back to) -- both independently toggleable
 
 The window is resizable -- the grid canvas fills the available space
 and the control panel stays docked to the right edge.
@@ -47,18 +51,19 @@ import textwrap
 from life import LifeGrid, RULE_PRESETS
 from widgets import Slider, Button, Toggle, ToggleGrid, Dropdown
 from patterns_library import PATTERN_CATEGORIES
+from visualization import TileCache, age_to_bucket_array, pattern_index_array
 
 # ----------------------------------------------------------------------
 # Layout constants
 # ----------------------------------------------------------------------
 PANEL_W = 340
 INITIAL_GRID_AREA_W = 700
-INITIAL_GRID_AREA_H = 840
+INITIAL_GRID_AREA_H = 910
 INITIAL_WINDOW_W = INITIAL_GRID_AREA_W + PANEL_W
 INITIAL_WINDOW_H = INITIAL_GRID_AREA_H
 
 MIN_WINDOW_W = PANEL_W + 260
-MIN_WINDOW_H = 840
+MIN_WINDOW_H = 910
 
 BG_COLOR = (18, 18, 22)
 PANEL_COLOR = (28, 29, 35)
@@ -98,10 +103,13 @@ class GameOfLifeApp:
         self.running_sim = False
         self.mouse_painting = False
         self.paint_value = 1
+        self._paint_lineage = None
         self.time_accumulator = 0.0
         self.status_message = ""
         self.status_timer = 0.0
         self.insert_mode = False
+        self.tile_cache = TileCache()
+        self.tile_cache.invalidate(self.cell_size)
 
         # Hidden tkinter root for native save/load file dialogs.
         self._tk_root = None
@@ -130,6 +138,10 @@ class GameOfLifeApp:
         self.wrap_toggle = Toggle((px, y, w, 22), "Wrap-around edges", True)
         y += 30
         self.gridlines_toggle = Toggle((px, y, w, 22), "Show grid lines", True)
+        y += 36
+        self.color_by_age_toggle = Toggle((px, y, w, 22), "Color by age", True)
+        y += 30
+        self.pattern_by_heredity_toggle = Toggle((px, y, w, 22), "Pattern by heredity", True)
         y += 36
 
         self.birth_grid = ToggleGrid((px, y, 0, 0), "Birth (B) -- neighbor counts", {3}, accent=ACCENT_GREEN)
@@ -187,6 +199,8 @@ class GameOfLifeApp:
 
         self.wrap_toggle.set_pos(px, y); y += 30
         self.gridlines_toggle.set_pos(px, y); y += 36
+        self.color_by_age_toggle.set_pos(px, y); y += 30
+        self.pattern_by_heredity_toggle.set_pos(px, y); y += 36
 
         self.birth_grid.set_pos(px, y); y += 50
         self.survive_grid.set_pos(px, y); y += 58
@@ -237,6 +251,7 @@ class GameOfLifeApp:
         rows = max(1, self.grid_area_h // self.cell_size)
         cols = max(1, self.grid_area_w // self.cell_size)
         self.grid.resize(rows, cols)
+        self.tile_cache.invalidate(self.cell_size)
 
     # ------------------------------------------------------------------
     # Pattern library
@@ -262,8 +277,9 @@ class GameOfLifeApp:
         width = max(c for r, c in cells) + 1
         top_row = row - height // 2
         top_col = col - width // 2
+        lineage_id = self.grid._new_lineage_id()  # whole stamped pattern is one family
         for dr, dc in cells:
-            self.grid.set_cell(top_row + dr, top_col + dc, 1)
+            self.grid.set_cell(top_row + dr, top_col + dc, 1, lineage=lineage_id)
         self._set_status(f"Placed: {name}")
 
     def _screen_to_cell(self, pos):
@@ -402,7 +418,8 @@ class GameOfLifeApp:
                     self._stamp_pattern_at(row, col)
                 else:
                     self.paint_value = 0 if self.grid.cells[row, col] else 1
-                    self.grid.toggle_cell(row, col)
+                    self._paint_lineage = self.grid._new_lineage_id() if self.paint_value else None
+                    self.grid.toggle_cell(row, col, lineage=self._paint_lineage)
                     self.mouse_painting = True
         elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
             self.mouse_painting = False
@@ -410,7 +427,7 @@ class GameOfLifeApp:
             cell = self._screen_to_cell(event.pos)
             if cell is not None:
                 row, col = cell
-                self.grid.set_cell(row, col, self.paint_value)
+                self.grid.set_cell(row, col, self.paint_value, lineage=self._paint_lineage)
 
         # Panel widgets
         self.speed_slider.handle_event(event)
@@ -419,6 +436,8 @@ class GameOfLifeApp:
             self._apply_cell_size(int(self.cellsize_slider.value))
         self.wrap_toggle.handle_event(event)
         self.gridlines_toggle.handle_event(event)
+        self.color_by_age_toggle.handle_event(event)
+        self.pattern_by_heredity_toggle.handle_event(event)
 
         if self.birth_grid.handle_event(event):
             self.grid.birth = set(self.birth_grid.values)
@@ -484,10 +503,18 @@ class GameOfLifeApp:
 
         self.screen.set_clip(grid_surf_rect)
         cs = self.cell_size
-        alive_coords = self.grid.cells.nonzero()
-        for r, c in zip(*alive_coords):
-            rect = pygame.Rect(int(c) * cs, int(r) * cs, cs, cs)
-            self.screen.fill(CELL_COLOR, rect)
+        color_by_age = self.color_by_age_toggle.value
+        pattern_by_heredity = self.pattern_by_heredity_toggle.value
+        rows_idx, cols_idx = self.grid.cells.nonzero()
+        if len(rows_idx):
+            age_buckets = age_to_bucket_array(self.grid.ages[rows_idx, cols_idx]) if color_by_age else None
+            pattern_indices = pattern_index_array(self.grid.lineage[rows_idx, cols_idx]) if pattern_by_heredity else None
+            for i in range(len(rows_idx)):
+                r, c = int(rows_idx[i]), int(cols_idx[i])
+                age_bucket = int(age_buckets[i]) if color_by_age else 0
+                pattern_idx = int(pattern_indices[i]) if pattern_by_heredity else 0
+                tile = self.tile_cache.get(age_bucket, pattern_idx, color_by_age, pattern_by_heredity)
+                self.screen.blit(tile, (c * cs, r * cs))
 
         if self.gridlines_toggle.value and cs >= 4:
             for x in range(0, self.grid_area_w, cs):
@@ -507,6 +534,8 @@ class GameOfLifeApp:
         self.cellsize_slider.draw(self.screen, ACCENT)
         self.wrap_toggle.draw(self.screen, ACCENT)
         self.gridlines_toggle.draw(self.screen, ACCENT)
+        self.color_by_age_toggle.draw(self.screen, ACCENT)
+        self.pattern_by_heredity_toggle.draw(self.screen, ACCENT)
         self.birth_grid.draw(self.screen)
         self.survive_grid.draw(self.screen)
         self.preset_dropdown.draw(self.screen)
